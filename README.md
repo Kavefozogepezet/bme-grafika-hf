@@ -12,4 +12,4 @@
 >6. Egy közelítő pont és sebességvektorhoz a geometria szabályait teljesítő, közeli pont és sebesség választása.
 >
 
-The solution for tho other assignments is on their respective branch.
+The solution for other assignments is on their respective branch.

@@ -33,91 +33,129 @@
 //=============================================================================================
 #include "framework.h"
 
-// vertex shader in GLSL: It is a Raw string (C++11) since it contains new line characters
-const char * const vertexSource = R"(
-	#version 330				// Shader 3.3
-	precision highp float;		// normal floats, makes no difference on desktop computers
+#include <iostream>
 
-	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
-	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+class HyperbolicRenderer {
+public:
+	/* Initializes OpenGL, shaders, and buffers */
+	void init();
 
-	void main() {
-		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
-	}
-)";
+	/* Clears the frame and renders the outline of the Beltrami-Poincare projection. */
+	void startFrame();
 
-// fragment shader in GLSL
-const char * const fragmentSource = R"(
-	#version 330			// Shader 3.3
-	precision highp float;	// normal floats, makes no difference on desktop computers
-	
-	uniform vec3 color;		// uniform variable, the color of the primitive
-	out vec4 outColor;		// computed color of the current pixel
+	/* Swaps buffers */
+	void endFrame();
 
-	void main() {
-		outColor = vec4(color, 1);	// computed color is the color of the primitive
-	}
-)";
+	/* 
+	* Draws a point on the hyperbolic surface using the Beltrami-Poincare projection.
+	* @param point the point on the surface
+	* @param color the color of the point
+	*/
+	void drawPoint(const vec3& point, const vec3& color);
 
-GPUProgram gpuProgram; // vertex and fragment shaders
-unsigned int vao;	   // virtual world on the GPU
+	/*
+	* Draws a circle on the hyperbolic surface using the Beltrami-Poincare projection.
+	* @param c the centre of the circle
+	* @param r the radius of the circle
+	* @param color the color of the circle
+	* @res the number of points to approximate the edge of the circle
+	*/
+	void drawCircle(const vec3& c, float r, const vec3& color, size_t res = 16);
+
+	/*
+	* Draws a line segment on the hyperbolic surface using the Beltrami-Poincare projection.
+	* @param p1, p2 the two ends of the line segment
+	* @param color the color of the line segment
+	* @param t the thickness of the line
+	* @res the number of points to approximate the line segment
+	*/
+	void drawLine(const vec3& p1, const vec3& p2, const vec3& color, float t, size_t res = 16);
+private:
+	unsigned int vao, vbo;
+	GPUProgram boundary, hyperbolic;
+
+	static float quad[18];
+	static const char* boundaryVert, * boundaryFrag, * hyperbolicVert, * hyperbolicFrag;
+} Renderer;
+
+namespace HypMath {
+	/*
+	* Calculates the Lorentz dot product of two vectors
+	* @param v1 left operand
+	* @param v2 right operand
+	* @returns the product
+	*/
+	float lorentz(const vec3& v1, const vec3& v2);
+
+	/*
+	* Interpolates two points on thr hyperbolic surface
+	* @param p1, p2 the two points
+	* @param a the ratio between the two points
+	*/
+	vec3 interpolate(const vec3& p1, const vec3& p2, float a);
+
+	/*
+	* Walks at a given direction from the starting point.
+	* If the velocity is a unit vector, the distance of the end point
+	* from the starting point will be dt.
+	* @param p the starting point of the walk, its value is changed to the endpoint of the walk
+	* @param v the velocity wich is a valid vector at p, its value is changed th the new velocity at he endpoint
+	* @param dt the duration of the walk
+	*/
+	void walk(vec3& p, vec3& v, float dt);
+
+	vec3 paralellAt(const vec3& v, const vec3& p);
+
+	/*
+	* Rotates the given vector along the axis defined by the normal vector of the hyperbolic surface at the point.
+	* @param v the vector to be rotated
+	* @param a the angle of rotation
+	* @param p the point of the hyperbolic surface, where v is a valid vector
+	* @returns the rotated vector
+	*/
+	vec3 rotateAt(const vec3& v, float a, const vec3& p);
+
+	void correct(vec3& p, vec3& v);
+}
+
+vec3 point = { 0.0f, 0.0f, 1.0f };
+vec3 dir = { 1.0f, 0.0f, 0.0f };
+vec3 input = { 0.0f, 0.0f, 0.0f };
+
+long lastTime = 0;
 
 // Initialization, create an OpenGL context
 void onInitialization() {
-	glViewport(0, 0, windowWidth, windowHeight);
-
-	glGenVertexArrays(1, &vao);	// get 1 vao id
-	glBindVertexArray(vao);		// make it active
-
-	unsigned int vbo;		// vertex buffer object
-	glGenBuffers(1, &vbo);	// Generate 1 buffer
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
-	float vertices[] = { -0.8f, -0.8f, -0.6f, 1.0f, 0.8f, -0.2f };
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(vertices),  // # bytes
-		vertices,	      	// address
-		GL_STATIC_DRAW);	// we do not change later
-
-	glEnableVertexAttribArray(0);  // AttribArray 0
-	glVertexAttribPointer(0,       // vbo -> AttribArray 0
-		2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
-		0, NULL); 		     // stride, offset: tightly packed
-
-	// create program for the GPU
-	gpuProgram.create(vertexSource, fragmentSource, "outColor");
+	Renderer.init();
 }
 
 // Window has become invalid: Redraw
 void onDisplay() {
-	glClearColor(0, 0, 0, 0);     // background color
-	glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
-
-	// Set color to (0, 1, 0) = green
-	int location = glGetUniformLocation(gpuProgram.getId(), "color");
-	glUniform3f(location, 0.0f, 1.0f, 0.0f); // 3 floats
-
-	float MVPtransf[4][4] = { 1, 0, 0, 0,    // MVP matrix, 
-							  0, 1, 0, 0,    // row-major!
-							  0, 0, 1, 0,
-							  0, 0, 0, 1 };
-
-	location = glGetUniformLocation(gpuProgram.getId(), "MVP");	// Get the GPU location of uniform variable MVP
-	glUniformMatrix4fv(location, 1, GL_TRUE, &MVPtransf[0][0]);	// Load a 4x4 row-major float matrix to the specified location
-
-	glBindVertexArray(vao);  // Draw call
-	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 3 /*# Elements*/);
-
-	glutSwapBuffers(); // exchange buffers for double buffering
+	Renderer.startFrame();
+	Renderer.drawCircle(point, 0.5f, { 1.0f, 1.0f, 1.0f });
+	vec3 eyepos = point; vec3 eyevel = dir;
+	HypMath::walk(eyepos, eyevel, 0.5f);
+	Renderer.drawCircle(eyepos, 0.1f, { 1.0f, 0.0f, 0.0f });
+	Renderer.drawPoint(point, { 1.0f, 0.0f, 0.0f });
+	Renderer.endFrame();
 }
 
 // Key of ASCII code pressed
 void onKeyboard(unsigned char key, int pX, int pY) {
-	if (key == 'd') glutPostRedisplay();         // if d, invalidate display, i.e. redraw
+	switch (key) {
+	case 'e': input.x = 1.0f; break;
+	case 's': input.y = 1.0f; break;
+	case 'f': input.z = 1.0f; break;
+	}
 }
 
 // Key of ASCII code released
 void onKeyboardUp(unsigned char key, int pX, int pY) {
+	switch (key) {
+	case 'e': input.x = 0.0f; break;
+	case 's': input.y = 0.0f; break;
+	case 'f': input.z = 0.0f; break;
+	}
 }
 
 // Move mouse with key pressed
@@ -149,5 +187,200 @@ void onMouse(int button, int state, int pX, int pY) { // pX, pY are the pixel co
 
 // Idle event indicating that some time elapsed: do animation here
 void onIdle() {
-	long time = glutGet(GLUT_ELAPSED_TIME); // elapsed time since the start of the program
+	if (!time) {
+		lastTime = glutGet(GLUT_ELAPSED_TIME);
+		return;
+	}
+
+	long time = glutGet(GLUT_ELAPSED_TIME);
+	if (time - lastTime < 10)
+		return;
+
+	float dt = float(time - lastTime) / 1000.0f;
+	std::cout << dt << std::endl;
+
+	HypMath::walk(point, dir, dt * input.x);
+	dir = HypMath::rotateAt(dir, (input.y - input.z) * dt, point);
+	HypMath::correct(point, dir);
+
+	lastTime = time;
+
+	glutPostRedisplay();
+}
+
+const char
+* HyperbolicRenderer::boundaryVert = R"(
+	#version 330
+	precision highp float;
+
+	layout(location = 0) in vec3 vp;
+	out vec2 radius;
+
+	void main() {
+		radius = vec2(vp.xy);
+		gl_Position = vec4(vp.x, vp.y, 0, 1);
+	}
+)",
+* HyperbolicRenderer::boundaryFrag = R"(
+	#version 330
+	precision highp float;
+	
+	in vec2 radius;
+	out vec4 outColor;
+
+	void main() {
+		if(length(radius) > 1.0)
+			outColor = vec4(0, 0, 0, 0);
+		else
+			outColor = vec4(0.1f, 0.1, 0.1, 1);
+	}
+)",
+* HyperbolicRenderer::hyperbolicVert = R"(
+	#version 330
+	precision highp float;
+
+	layout(location = 0) in vec3 vp;
+
+	void main() {
+		float a = 1 / (vp.z + 1);
+		vec3 proj = vec3(0, 0, -1) * (1 - a) + vp * a;
+		gl_Position = vec4(proj.x, proj.y, 0, 1);
+	}
+)",
+* HyperbolicRenderer::hyperbolicFrag = R"(
+	#version 330
+	precision highp float;
+	
+	uniform vec3 color;
+	out vec4 outColor;
+
+	void main() {
+		outColor = vec4(color, 1);
+	}
+)";
+
+void HyperbolicRenderer::init() {
+	glViewport(0, 0, windowWidth, windowHeight);
+
+	glGenVertexArrays(1, &vao);	// get 1 vao id
+	glBindVertexArray(vao);		// make it active
+
+	unsigned int vbo;		// vertex buffer object
+	glGenBuffers(1, &vbo);	// Generate 1 buffer
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
+
+	glEnableVertexAttribArray(0);  // AttribArray 0
+	glVertexAttribPointer(0,       // vbo -> AttribArray 0
+		3, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
+		0, NULL); 		     // stride, offset: tightly packed
+
+	// create program for the GPU
+	boundary.create(boundaryVert, boundaryFrag, "outColor");
+	hyperbolic.create(hyperbolicVert, hyperbolicFrag, "outColor");
+}
+
+void HyperbolicRenderer::startFrame() {
+	boundary.Use();
+	glBindVertexArray(vao);  // Draw call
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(quad),  // # bytes
+		quad,	      	// address
+		GL_DYNAMIC_DRAW);	// we do not change later
+	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 6/*# Elements*/);
+	hyperbolic.Use();
+}
+
+void HyperbolicRenderer::endFrame() {
+	glutSwapBuffers();
+}
+
+void HyperbolicRenderer::drawPoint(const vec3& point, const vec3& color) {
+	int location = glGetUniformLocation(hyperbolic.getId(), "color");
+	glUniform3f(location, color.x, color.y, color.z); // 3 floats
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(vec3),  // # bytes
+		&point.x,	      	// address
+		GL_DYNAMIC_DRAW);	// we do not change later
+	glDrawArrays(GL_POINTS, 0, 1);
+}
+
+void HyperbolicRenderer::drawCircle(const vec3& c, float r, const vec3& color, size_t res) {
+	float angle = 0;
+	float increment = 2 * M_PI / float(res);
+
+	std::vector<vec3> vertices {};
+	vertices.reserve(res * 3);
+
+	float y;
+	vec3 rv;
+
+	if (c.x == 0.0f) {
+		rv = { 0.0f, 1.0f, 0.0f};
+	} else {
+		float y = sqrtf(c.x * c.x / (c.y * c.y + c.x * c.x));
+		rv = { -c.y * y / c.x, y, 0.0f };
+	}
+
+	vec3 r1 = { 1, 0, 0 }, r2 = { 0, 1, 0 };
+
+	vec3 rdir = rv;
+	vec3 last = c;
+	HypMath::walk(last, rdir, r);
+
+	for (size_t i = 0; i < res; i++) {
+		angle += increment;
+		rdir = HypMath::rotateAt(rv, angle, c);
+		vec3 current = c;
+		HypMath::walk(current, rdir, r);
+		vertices.push_back(c);
+		vertices.push_back(last);
+		vertices.push_back(current);
+		last = current;
+	}
+
+	int location = glGetUniformLocation(hyperbolic.getId(), "color");
+	glUniform3f(location, color.x, color.y, color.z); // 3 floats
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(vec3) * vertices.size(),  // # bytes
+		vertices.data(),	      	// address
+		GL_DYNAMIC_DRAW);	// we do not change later
+	glDrawArrays(GL_TRIANGLES, 0, res * 3);
+}
+
+float HyperbolicRenderer::quad[18] = {
+	1.0f, 1.0f, 0.0f,		-1.0f, 1.0f, 0.0f,		1.0f, -1.0f, 0.0f,
+	-1.0f, 1.0f, 0.0f,		1.0f, -1.0f, 0.0f,		-1.0f, -1.0f, 0.0f,
+};
+
+float HypMath::lorentz(const vec3& v1, const vec3& v2) {
+	return v1.x * v2.x + v1.y * v2.y - v1.z * v2.z;
+}
+
+vec3 HypMath::paralellAt(const vec3& v, const vec3& p) {
+	vec3 n{ p.x, p.y, -p.z };
+	vec3 vp = cross(v, n);
+	float l = lorentz(vp, vp);
+	vp = vp / sqrtf(lorentz(vp, vp));
+	l = lorentz(vp, vp);
+	return vp;
+}
+
+vec3 HypMath::rotateAt(const vec3& v, float a, const vec3& p) {
+	vec3 vp = paralellAt(v, p);
+	return cosf(a) * v + sinf(a) * vp;
+}
+
+void HypMath::walk(vec3& p, vec3& v, float dt) {
+	vec3 p2 = p * coshf(dt) + v * sinhf(dt);
+	v = p * sinhf(dt) + v * coshf(dt);
+	p = p2;
+}
+
+void HypMath::correct(vec3& p, vec3& v) {
+	p.z = sqrt(p.x * p.x + p.y * p.y + 1.0f);
+	vec3 n = normalize({ p.x, p.y, -p.z });
+	float e = dot(v, n);
+	v = v - n * e;
+	v = v / sqrtf(lorentz(v, v));
 }
