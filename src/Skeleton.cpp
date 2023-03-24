@@ -35,7 +35,16 @@
 
 #include <iostream>
 
-class HyperbolicRenderer {
+namespace Color {
+	const vec3
+		white{ 1, 1, 1 },
+		black{ 0, 0, 0 },
+		red{ 1, 0, 0 },
+		green{ 0, 1, 0 },
+		blue{ 0, 0, 1 };
+};
+
+class HypRenderer {
 public:
 	/* Initializes OpenGL, shaders, and buffers */
 	void init();
@@ -69,7 +78,9 @@ public:
 	* @param t the thickness of the line
 	* @res the number of points to approximate the line segment
 	*/
-	void drawLine(const vec3& p1, const vec3& p2, const vec3& color, float t, size_t res = 16);
+	void drawLine(const vec3& p1, const vec3& p2, const vec3& color, size_t res = 16);
+
+	void drawLineStrip(const std::vector<vec3>& points, const vec3& color);
 private:
 	unsigned int vao, vbo;
 	GPUProgram boundary, hyperbolic;
@@ -98,13 +109,24 @@ namespace HypMath {
 	* Walks at a given direction from the starting point.
 	* If the velocity is a unit vector, the distance of the end point
 	* from the starting point will be dt.
-	* @param p the starting point of the walk, its value is changed to the endpoint of the walk
+	* @param p the starting point of the walk, its value is changed to the end point of the walk
 	* @param v the velocity wich is a valid vector at p, its value is changed th the new velocity at he endpoint
 	* @param dt the duration of the walk
 	*/
 	void walk(vec3& p, vec3& v, float dt);
 
-	vec3 paralellAt(const vec3& v, const vec3& p);
+	/*
+	* Shifths the position and direction, as if it was on a circular orbit.
+	* @param p the position of the object, its value is changed to the end point
+	* @param d the direftion of the point, its value is changed to the new direction at the end point
+	* @param w the angular velocity of the orbit, if positiove, the orbit is counter clockwise, otherwise it's clockwise
+	* @param v the peripheral speed of the point
+	* @param dt the delta time
+	*/
+	void orbit(vec3& p, vec3& d, float w, float v, float dt);
+
+	// TODO comment
+	vec3 perpendicularAt(const vec3& v, const vec3& p);
 
 	/*
 	* Rotates the given vector along the axis defined by the normal vector of the hyperbolic surface at the point.
@@ -115,46 +137,170 @@ namespace HypMath {
 	*/
 	vec3 rotateAt(const vec3& v, float a, const vec3& p);
 
+	/*
+	* Correts a point and vector,
+	* so that the point will be on the hyperbolic surface,
+	* and the vector will be valid at that point.
+	* @param p the point to correct
+	* @param v the vector to correct
+	*/
 	void correct(vec3& p, vec3& v);
 }
 
+enum class ArcType {
+	LEFT,
+	LEFT_FORWARD,
+	FORWARD,
+	RIGHT_FORWARD,
+	RIGHT
+};
+
+class UFOHami {
+public:
+	UFOHami(vec3 color) : color(color) {}
+
+	void setMoving(bool value) { moving = value;  }
+
+	void setMovement(ArcType value) {
+		if (movement == value)
+			return;
+
+		// concatenate trail with current arc
+		trail.reserve(currentArc.size());
+		trail.insert(trail.end(), currentArc.begin(), currentArc.end());
+		currentArc.clear();
+		
+		// prepare movement for the next arc
+		lastPos = position;
+		lastDir = direction;
+		delta = 0.0f;
+
+		movement = value;
+		std::cout << "arc changed" << std::endl;
+	}
+
+	void animate(float dt) {
+		animation += dt * 5.0f;
+
+		if (moving) {
+			delta += dt;
+
+			position = lastPos;
+			direction = lastDir;
+
+			switch (movement) {
+			case ArcType::FORWARD:
+				HypMath::walk(position, direction, delta * VELOCITY);
+				break;
+			case ArcType::LEFT_FORWARD:
+				HypMath::orbit(position, direction, OMEGA, VELOCITY, delta);
+				break;
+			case ArcType::RIGHT_FORWARD:
+				HypMath::orbit(position, direction, -OMEGA, VELOCITY, delta);
+				break;
+			case ArcType::LEFT:
+				direction = HypMath::rotateAt(lastDir, delta * OMEGA * M_PI * 2, position);
+				break;
+			case ArcType::RIGHT:
+				direction = HypMath::rotateAt(lastDir, -delta * OMEGA * M_PI * 2, position);
+				break;
+			}
+			HypMath::correct(position, direction);
+
+			//TODO update trail
+		}
+	}
+
+	void draw() {
+		Renderer.drawCircle(position, RADIUS, color, 32);
+		const float eyeRots[2] = { EYE_ANGLE, -EYE_ANGLE };
+		for (auto eyeRot : eyeRots) {
+			vec3 eyePos = position;
+			vec3 eyeVec = HypMath::rotateAt(direction, eyeRot, position);
+			HypMath::walk(eyePos, eyeVec, RADIUS);
+			Renderer.drawCircle(eyePos, EYE_RADIUS, Color::white);
+			Renderer.drawCircle(eyePos, EYE_RADIUS / 2.0f, Color::black);
+		}
+		vec3 mouthPos = position, mouthVec = direction;
+		HypMath::walk(mouthPos, mouthVec, RADIUS * 0.9f);
+		Renderer.drawCircle(mouthPos, MOUTH_RADIUS * sinf(animation), Color::black);
+	}
+
+	void drawTrail() {
+		Renderer.drawLineStrip(trail, Color::white);
+	}
+private:
+	vec3 position{ 0, 0, 1 }, direction{ 1, 0, 0 }, color;
+
+	ArcType movement = ArcType::FORWARD;
+	vec3 lastPos = position, lastDir = direction;
+	float delta = 0.0f;
+	bool moving = false;
+
+	std::vector<vec3> trail;
+	std::vector<vec3> currentArc;
+
+	float animation = 0.0f;
+
+	static constexpr float
+		RADIUS = 0.2f,
+		EYE_ANGLE = M_PI * 0.2f,
+		EYE_RADIUS = 0.05f,
+		MOUTH_RADIUS = 0.075f,
+		
+		VELOCITY = 0.75f,
+		OMEGA = 0.5f;
+};
+/*
 vec3 point = { 0.0f, 0.0f, 1.0f };
 vec3 dir = { 1.0f, 0.0f, 0.0f };
-vec3 input = { 0.0f, 0.0f, 0.0f };
+*/
+
+UFOHami
+	redhami { Color::red },
+	greenhami{ Color::green };
 
 long lastTime = 0;
+
+bool in_e = false, in_s = false, in_f = false;
 
 // Initialization, create an OpenGL context
 void onInitialization() {
 	Renderer.init();
+	greenhami.setMoving(true);
+	greenhami.setMovement(ArcType::RIGHT_FORWARD);
 }
 
 // Window has become invalid: Redraw
 void onDisplay() {
 	Renderer.startFrame();
-	Renderer.drawCircle(point, 0.5f, { 1.0f, 1.0f, 1.0f });
-	vec3 eyepos = point; vec3 eyevel = dir;
-	HypMath::walk(eyepos, eyevel, 0.5f);
-	Renderer.drawCircle(eyepos, 0.1f, { 1.0f, 0.0f, 0.0f });
-	Renderer.drawPoint(point, { 1.0f, 0.0f, 0.0f });
+
+	greenhami.drawTrail();
+	redhami.drawTrail();
+
+	greenhami.draw();
+	redhami.draw();
+
 	Renderer.endFrame();
 }
 
 // Key of ASCII code pressed
 void onKeyboard(unsigned char key, int pX, int pY) {
 	switch (key) {
-	case 'e': input.x = 1.0f; break;
-	case 's': input.y = 1.0f; break;
-	case 'f': input.z = 1.0f; break;
+	case 'e': in_e = true; break;
+	case 's': in_s = true; break;
+	case 'f': in_f = true; break;
+	case 'p':
+		break;
 	}
 }
 
 // Key of ASCII code released
 void onKeyboardUp(unsigned char key, int pX, int pY) {
 	switch (key) {
-	case 'e': input.x = 0.0f; break;
-	case 's': input.y = 0.0f; break;
-	case 'f': input.z = 0.0f; break;
+	case 'e': in_e = false; break;
+	case 's': in_s = false; break;
+	case 'f': in_f = false; break;
 	}
 }
 
@@ -197,11 +343,40 @@ void onIdle() {
 		return;
 
 	float dt = float(time - lastTime) / 1000.0f;
-	std::cout << dt << std::endl;
 
-	HypMath::walk(point, dir, dt * input.x);
+	bool in_rotate = in_s != in_f;
+	redhami.setMoving(true); // assume movement
+
+	if (in_e) {
+		if (in_rotate) {
+			if (in_s)
+				redhami.setMovement(ArcType::LEFT_FORWARD);
+			else
+				redhami.setMovement(ArcType::RIGHT_FORWARD);
+		}
+		else {
+			redhami.setMovement(ArcType::FORWARD);
+		}
+	}
+	else if(in_rotate) {
+		if (in_s)
+			redhami.setMovement(ArcType::LEFT);
+		else
+			redhami.setMovement(ArcType::RIGHT); 
+	}
+	else {
+		redhami.setMoving(false); // assumption was incorrect
+	}
+
+	//std::cout << dt << std::endl;
+
+	/*
+	HypMath::walk(point, dir, dt * input.x / 5.0f);
 	dir = HypMath::rotateAt(dir, (input.y - input.z) * dt, point);
 	HypMath::correct(point, dir);
+	*/
+	redhami.animate(dt);
+	greenhami.animate(dt);
 
 	lastTime = time;
 
@@ -209,7 +384,7 @@ void onIdle() {
 }
 
 const char
-* HyperbolicRenderer::boundaryVert = R"(
+* HypRenderer::boundaryVert = R"(
 	#version 330
 	precision highp float;
 
@@ -221,7 +396,7 @@ const char
 		gl_Position = vec4(vp.x, vp.y, 0, 1);
 	}
 )",
-* HyperbolicRenderer::boundaryFrag = R"(
+* HypRenderer::boundaryFrag = R"(
 	#version 330
 	precision highp float;
 	
@@ -230,12 +405,12 @@ const char
 
 	void main() {
 		if(length(radius) > 1.0)
-			outColor = vec4(0, 0, 0, 0);
-		else
 			outColor = vec4(0.1f, 0.1, 0.1, 1);
+		else
+			outColor = vec4(0, 0, 0, 0);
 	}
 )",
-* HyperbolicRenderer::hyperbolicVert = R"(
+* HypRenderer::hyperbolicVert = R"(
 	#version 330
 	precision highp float;
 
@@ -247,7 +422,7 @@ const char
 		gl_Position = vec4(proj.x, proj.y, 0, 1);
 	}
 )",
-* HyperbolicRenderer::hyperbolicFrag = R"(
+* HypRenderer::hyperbolicFrag = R"(
 	#version 330
 	precision highp float;
 	
@@ -259,7 +434,7 @@ const char
 	}
 )";
 
-void HyperbolicRenderer::init() {
+void HypRenderer::init() {
 	glViewport(0, 0, windowWidth, windowHeight);
 
 	glGenVertexArrays(1, &vao);	// get 1 vao id
@@ -280,7 +455,7 @@ void HyperbolicRenderer::init() {
 	hyperbolic.create(hyperbolicVert, hyperbolicFrag, "outColor");
 }
 
-void HyperbolicRenderer::startFrame() {
+void HypRenderer::startFrame() {
 	boundary.Use();
 	glBindVertexArray(vao);  // Draw call
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
@@ -291,11 +466,11 @@ void HyperbolicRenderer::startFrame() {
 	hyperbolic.Use();
 }
 
-void HyperbolicRenderer::endFrame() {
+void HypRenderer::endFrame() {
 	glutSwapBuffers();
 }
 
-void HyperbolicRenderer::drawPoint(const vec3& point, const vec3& color) {
+void HypRenderer::drawPoint(const vec3& point, const vec3& color) {
 	int location = glGetUniformLocation(hyperbolic.getId(), "color");
 	glUniform3f(location, color.x, color.y, color.z); // 3 floats
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
@@ -305,7 +480,7 @@ void HyperbolicRenderer::drawPoint(const vec3& point, const vec3& color) {
 	glDrawArrays(GL_POINTS, 0, 1);
 }
 
-void HyperbolicRenderer::drawCircle(const vec3& c, float r, const vec3& color, size_t res) {
+void HypRenderer::drawCircle(const vec3& c, float r, const vec3& color, size_t res) {
 	float angle = 0;
 	float increment = 2 * M_PI / float(res);
 
@@ -348,7 +523,17 @@ void HyperbolicRenderer::drawCircle(const vec3& c, float r, const vec3& color, s
 	glDrawArrays(GL_TRIANGLES, 0, res * 3);
 }
 
-float HyperbolicRenderer::quad[18] = {
+void HypRenderer::drawLineStrip(const std::vector<vec3>& points, const vec3& color) {
+	int location = glGetUniformLocation(hyperbolic.getId(), "color");
+	glUniform3f(location, color.x, color.y, color.z); // 3 floats
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(vec3) * points.size(),  // # bytes
+		points.data(),	      	// address
+		GL_DYNAMIC_DRAW);	// we do not change later
+	glDrawArrays(GL_LINE_STRIP, 0, points.size());
+}
+
+float HypRenderer::quad[18] = {
 	1.0f, 1.0f, 0.0f,		-1.0f, 1.0f, 0.0f,		1.0f, -1.0f, 0.0f,
 	-1.0f, 1.0f, 0.0f,		1.0f, -1.0f, 0.0f,		-1.0f, -1.0f, 0.0f,
 };
@@ -357,17 +542,28 @@ float HypMath::lorentz(const vec3& v1, const vec3& v2) {
 	return v1.x * v2.x + v1.y * v2.y - v1.z * v2.z;
 }
 
-vec3 HypMath::paralellAt(const vec3& v, const vec3& p) {
-	vec3 n{ p.x, p.y, -p.z };
-	vec3 vp = cross(v, n);
-	float l = lorentz(vp, vp);
+vec3 HypMath::perpendicularAt(const vec3& v, const vec3& p) {
+	vec3 vp;
+	float expr1 = v.z * p.x - p.z * v.x;
+	// check if we can divide with expr1, no need for a bias
+	if (expr1 == 0.0f) {
+		float z = p.x / p.z;
+		vp = { 1.0f, 0.0f, z };
+	} else {
+		float
+			x = (p.z * v.y - v.z * p.y) / expr1,
+			z = (p.x * x + p.y) / p.z;
+		vp = { x, 1.0f, z };
+	}
 	vp = vp / sqrtf(lorentz(vp, vp));
-	l = lorentz(vp, vp);
+	// correct direction
+	if (cross(v, vp).z < 0.0f)
+		vp = -vp;
 	return vp;
 }
 
 vec3 HypMath::rotateAt(const vec3& v, float a, const vec3& p) {
-	vec3 vp = paralellAt(v, p);
+	vec3 vp = perpendicularAt(v, p);
 	return cosf(a) * v + sinf(a) * vp;
 }
 
@@ -383,4 +579,20 @@ void HypMath::correct(vec3& p, vec3& v) {
 	float e = dot(v, n);
 	v = v - n * e;
 	v = v / sqrtf(lorentz(v, v));
+}
+
+void HypMath::orbit(vec3& p, vec3& d, float w, float v, float dt) {
+	float r = asinhf(v / w);
+
+	vec3 centre = p;
+	vec3 radius = perpendicularAt(d, p);
+
+	// calculation the centre and radius of the orbit
+	walk(centre, radius, r);
+	radius = HypMath::rotateAt(-radius, w * dt, centre);
+
+	// calculating end point of the orbit
+	walk(centre, radius, r);
+	p = centre;
+	d = perpendicularAt(radius, p);
 }
