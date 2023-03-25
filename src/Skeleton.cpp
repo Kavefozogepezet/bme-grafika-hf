@@ -213,6 +213,9 @@ public:
 
 	void draw() {
 		Renderer.drawCircle(position, RADIUS, color, 32);
+		vec3 mouthPos = position, mouthVec = direction;
+		HypMath::walk(mouthPos, mouthVec, RADIUS * 0.9f);
+		Renderer.drawCircle(mouthPos, MOUTH_RADIUS * sinf(animation), Color::black);
 		const float eyeRots[2] = { EYE_ANGLE, -EYE_ANGLE };
 		for (auto eyeRot : eyeRots) {
 			vec3 eyePos = position;
@@ -221,9 +224,6 @@ public:
 			Renderer.drawCircle(eyePos, EYE_RADIUS, Color::white);
 			Renderer.drawCircle(eyePos, EYE_RADIUS / 2.0f, Color::black);
 		}
-		vec3 mouthPos = position, mouthVec = direction;
-		HypMath::walk(mouthPos, mouthVec, RADIUS * 0.9f);
-		Renderer.drawCircle(mouthPos, MOUTH_RADIUS * sinf(animation), Color::black);
 	}
 
 	void drawTrail() {
@@ -244,8 +244,8 @@ private:
 
 	static constexpr float
 		RADIUS = 0.2f,
-		EYE_ANGLE = M_PI * 0.2f,
-		EYE_RADIUS = 0.05f,
+		EYE_ANGLE = M_PI * 0.25f,
+		EYE_RADIUS = 0.075f,
 		MOUTH_RADIUS = 0.075f,
 		
 		VELOCITY = 0.75f,
