@@ -33,10 +33,6 @@
 //=============================================================================================
 #include "framework.h"
 
-#include <cmath>
-#include <random>
-#include <time.h>
-
 namespace Color {
 	const vec3
 		white{ 1, 1, 1 },
@@ -185,23 +181,18 @@ enum class ArcType {
 class UFOHami {
 public:
 	/*
-	* creates a UFO hami with a random position and rotation in the spawn area.
-	* The spawn area is a circle with SPAWN_RADIUS as the radius, and (0, 0, 1) as the centre.
+	* creates a UFO hami with a starting position and rotation.
+	* @param color the color of the body
+	* @param startpos the 2D vector will be projected to the hyperbolic surface
+	* @param the rotation of the hami. 0 rotation means the hami points points towards the origo
 	*/
-	UFOHami(vec3 color) : color(color) {
-		if (!initrand) {
-			srand(time(NULL));
-			initrand = true;
-		}
+	UFOHami(vec3 color, vec2 startpos, float angle) : color(color) {
+		float z = sqrt(startpos.x * startpos.x + startpos.y * startpos.y + 1);
+		position = vec3(startpos.x, startpos.y, z);
 
-		float
-			randAngle = (float(rand() % 6283) * 0.01f),
-			randDirAngle = (float(rand() % 6283) * 0.01f),
-			randDistance = float(rand() % (SPAWN_RADIUS * 100)) * 0.01f;
-		direction = HypMath::rotateAt(direction, randAngle, position);
-		HypMath::walk(position, direction, 1.0f, randDistance);
-		direction = HypMath::rotateAt(direction, randDirAngle, position);
-		HypMath::correct(position, direction);
+		float temp;
+		HypMath::distance(position, { 0, 0, 1 }, direction, temp);
+		direction = HypMath::rotateAt(direction, angle, position);
 
 		lastPos = position;
 		lastDir = direction;
@@ -384,8 +375,8 @@ private:
 	static constexpr int
 		SPAWN_RADIUS = 2;
 }
-redhami{ Color::red },
-greenhami{ Color::green };
+redhami{ Color::red, { -2, -3 }, 4.0f },
+greenhami{ Color::green, { 3, -1 }, 0.5f };
 
 bool UFOHami::initrand = false;
 
@@ -459,7 +450,7 @@ void onIdle() {
 	if (gameOver)
 		return;
 
-	if (!time) {
+	if (!lastTime) {
 		lastTime = glutGet(GLUT_ELAPSED_TIME);
 		return;
 	}
