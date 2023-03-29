@@ -33,7 +33,6 @@
 //=============================================================================================
 #include "framework.h"
 
-#include <iostream>
 #include <cmath>
 #include <random>
 #include <time.h>
@@ -73,14 +72,6 @@ public:
 	* @res the number of points to approximate the edge of the circle
 	*/
 	void drawCircle(const vec3& c, float r, const vec3& color, size_t res = 16);
-
-	/*
-	* Draws a line segment on the hyperbolic surface using the Beltrami-Poincare projection.
-	* @param p1, p2 the two ends of the line segment
-	* @param color the color of the line segment
-	* @res the number of points to approximate the line segment
-	*/
-	void drawLine(const vec3& p1, const vec3& p2, const vec3& color, size_t res = 16);
 
 	/*
 	* Draws line segments on the hyperbolic surface using the Beltrami-Poincare projection.
@@ -193,6 +184,10 @@ enum class ArcType {
 
 class UFOHami {
 public:
+	/*
+	* creates a UFO hami with a random position and rotation in the spawn area.
+	* The spawn area is a circle with SPAWN_RADIUS as the radius, and (0, 0, 1) as the centre.
+	*/
 	UFOHami(vec3 color) : color(color) {
 		if (!initrand) {
 			srand(time(NULL));
@@ -273,8 +268,6 @@ public:
 				break;
 			}
 			HypMath::correct(position, direction);
-
-			//TODO update trail
 		}
 	}
 
@@ -442,7 +435,6 @@ void onKeyboard(unsigned char key, int pX, int pY) {
 	case 'p':
 		vec3 dirrot = HypMath::rotateAt(redhami.direction, 0.1f, redhami.position);
 		float angle = acos(HypMath::lorentz(dirrot, redhami.direction) / (HypMath::length(dirrot) * HypMath::length(redhami.direction)));
-		//std::cout << "angle: " << angle << std::endl;
 		break;
 	}
 }
