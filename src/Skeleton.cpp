@@ -358,27 +358,36 @@ private:
 		delta = 0.0f;
 	}
 private:
-	static bool initrand;
+	static const float
+		RADIUS,
+		EYE_ANGLE,
+		EYE_RADIUS,
+		MOUTH_RADIUS,
+		TRAIL_RESOLUTION,
+		ANIMATION_SPEED,
+		MAXIMUM_ARC_LENGTH,
+		VELOCITY,
+		OMEGA;
 
-	static constexpr float
-		RADIUS = 0.2f,
-		EYE_ANGLE = M_PI * 0.25f,
-		EYE_RADIUS = 0.075f,
-		MOUTH_RADIUS = 0.075f,
-		TRAIL_RESOLUTION = 0.2f,
-		ANIMATION_SPEED = 3.0f,
-		MAXIMUM_ARC_LENGTH = 10.0f,
-		
-		VELOCITY = 0.75f,
-		OMEGA = 0.5f;
-
-	static constexpr int
+	static const int
 		SPAWN_RADIUS = 2;
 }
 redhami{ Color::red, { -2, -3 }, 4.0f },
 greenhami{ Color::green, { 3, -1 }, 0.5f };
 
-bool UFOHami::initrand = false;
+const float
+	UFOHami::RADIUS = 0.2f,
+	UFOHami::EYE_ANGLE = M_PI * 0.25f,
+	UFOHami::EYE_RADIUS = 0.075f,
+	UFOHami::MOUTH_RADIUS = 0.075f,
+	UFOHami::TRAIL_RESOLUTION = 0.2f,
+	UFOHami::ANIMATION_SPEED = 3.0f,
+	UFOHami::MAXIMUM_ARC_LENGTH = 10.0f,
+	UFOHami::VELOCITY = 0.75f,
+	UFOHami::OMEGA = 0.5f;
+
+const int
+	SPAWN_RADIUS = 2;
 
 /* Contains the value of GLUT_ELAPSED_TIME at the last frame */
 long lastTime = 0;
