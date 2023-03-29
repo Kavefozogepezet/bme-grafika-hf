@@ -474,7 +474,7 @@ void onIdle() {
 	float dt = float(time - lastTime) / 1000.0f;
 	auto arc = in.getArcType();
 
-	redhami.setMoving(false); // assume the hami stopped moving
+	redhami.setMoving(false);
 	if (arc != ArcType::UNKNOWN) {
 		redhami.setMovement(arc);
 		redhami.setMoving(true);
@@ -542,32 +542,30 @@ const char
 void HypRenderer::init() {
 	glViewport(0, 0, windowWidth, windowHeight);
 
-	glGenVertexArrays(1, &vao);	// get 1 vao id
-	glBindVertexArray(vao);		// make it active
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
 
-	unsigned int vbo;		// vertex buffer object
-	glGenBuffers(1, &vbo);	// Generate 1 buffer
+	unsigned int vbo;
+	glGenBuffers(1, &vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
 
-	glEnableVertexAttribArray(0);  // AttribArray 0
-	glVertexAttribPointer(0,       // vbo -> AttribArray 0
-		3, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
-		0, NULL); 		     // stride, offset: tightly packed
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0,
+		3, GL_FLOAT, GL_FALSE,
+		0, NULL); 		     
 
-	// create program for the GPU
 	boundary.create(boundaryVert, boundaryFrag, "outColor");
 	hyperbolic.create(hyperbolicVert, hyperbolicFrag, "outColor");
 }
 
 void HypRenderer::startFrame() {
 	boundary.Use();
-	glBindVertexArray(vao);  // Draw call
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(quad),  // # bytes
-		quad,	      	// address
-		GL_DYNAMIC_DRAW);	// we do not change later
-	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 6/*# Elements*/);
+	glBindVertexArray(vao);
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(quad),
+		quad,
+		GL_DYNAMIC_DRAW);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
 	hyperbolic.Use();
 }
 
@@ -577,11 +575,11 @@ void HypRenderer::endFrame() {
 
 void HypRenderer::drawPoint(const vec3& point, const vec3& color) {
 	int location = glGetUniformLocation(hyperbolic.getId(), "color");
-	glUniform3f(location, color.x, color.y, color.z); // 3 floats
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(vec3),  // # bytes
-		&point.x,	      	// address
-		GL_DYNAMIC_DRAW);	// we do not change later
+	glUniform3f(location, color.x, color.y, color.z);
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(vec3),
+		&point.x,
+		GL_DYNAMIC_DRAW);
 	glDrawArrays(GL_POINTS, 0, 1);
 }
 
@@ -619,21 +617,21 @@ void HypRenderer::drawCircle(const vec3& c, float r, const vec3& color, size_t r
 	}
 
 	int location = glGetUniformLocation(hyperbolic.getId(), "color");
-	glUniform3f(location, color.x, color.y, color.z); // 3 floats
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(vec3) * vertices.size(),  // # bytes
-		vertices.data(),	      	// address
-		GL_DYNAMIC_DRAW);	// we do not change later
+	glUniform3f(location, color.x, color.y, color.z);
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(vec3) * vertices.size(),
+		vertices.data(),
+		GL_DYNAMIC_DRAW);
 	glDrawArrays(GL_TRIANGLES, 0, res * 3);
 }
 
 void HypRenderer::drawLineStrip(const std::vector<vec3>& points, const vec3& color) {
 	int location = glGetUniformLocation(hyperbolic.getId(), "color");
-	glUniform3f(location, color.x, color.y, color.z); // 3 floats
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(vec3) * points.size(),  // # bytes
-		points.data(),	      	// address
-		GL_DYNAMIC_DRAW);	// we do not change later
+	glUniform3f(location, color.x, color.y, color.z);
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(vec3) * points.size(),
+		points.data(),
+		GL_DYNAMIC_DRAW);
 	glDrawArrays(GL_LINE_STRIP, 0, points.size());
 }
 
