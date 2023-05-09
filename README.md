@@ -1,5 +1,5 @@
 # BME Computer Graphics homework 2022/23/2
-## Homework 1 - UFO Hami
+## Homework 2 - Lehallgatástervezõ
 
 >Készítsen CPU sugárkövetés felhasználásával lehallgatástervezõ programot.
 >

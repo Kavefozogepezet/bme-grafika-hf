@@ -33,11 +33,8 @@
 //=============================================================================================
 #include "framework.h"
 
-#include <numeric>
-#include <memory>
 #include <array>
 #include <vector>
-#include <iostream>
 
 constexpr float EPSILON = 0.01f;
 
