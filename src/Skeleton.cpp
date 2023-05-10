@@ -41,6 +41,10 @@ constexpr float EPSILON = 0.01f;
 struct Ray {
 	vec3 start, direction;
 
+	Ray(vec3 start, vec3 direction) :
+		start(start), direction(direction)
+	{}
+
 	vec3 operator()(float t) const {
 		return start + t * direction;
 	}
@@ -50,6 +54,12 @@ struct Hit {
 	vec3 position, normal;
 	float t = -1;
 
+	Hit() = default;
+
+	Hit(vec3 position, vec3 normal, float t) :
+		position(position), normal(normal), t(t)
+	{}
+
 	operator bool() {
 		return t >= 0;
 	}
@@ -58,6 +68,12 @@ struct Hit {
 struct Object {
 	vec3 position;
 	virtual Hit intersect(const Ray& ray) const = 0;
+
+	Object() = default;
+
+	Object(vec3 position) :
+		position(position)
+	{}
 };
 
 Object* objects[6] = { nullptr };
@@ -69,11 +85,13 @@ class Mesh : public Object {
 public:
 	using Face = std::array<uint32_t, 3>;
 public:
-	Mesh() {}
+	Mesh() = default;
 
 	Mesh(
+		vec3 position,
 		std::initializer_list<Face> faces,
 		std::initializer_list<vec3> vertices) :
+		Object(position),
 		faces(faces), vertices(vertices)
 	{
 		radius = length(this->vertices[0] - position);
@@ -95,7 +113,7 @@ public:
 			discr = b * b - 4 * a * c;
 
 		if (discr < 0)
-			return {};
+			return Hit();
 
 		Hit hit;
 		for (auto& face : faces) {
@@ -119,7 +137,7 @@ public:
 				continue;
 
 			if (!hit || hit.t > t)
-				hit = { p, normalize(n), t };
+				hit = Hit(p, normalize(n), t);
 		}
 		return hit;
 	}
@@ -131,10 +149,11 @@ private:
 
 class Detector : public Object {
 public:
-	Detector() {}
+	Detector() = default;
 
 	Detector(vec3 position, vec3 direction, float angle, float height, vec3 color) :
-		angle(angle * 0.5f), height(height), position(position), direction(normalize(direction)), color(color)
+		Object(position),
+		angle(angle * 0.5f), height(height), direction(normalize(direction)), color(color)
 	{}
 
 	Hit intersect(const Ray& ray) const override {
@@ -154,7 +173,7 @@ public:
 
 		float discr = b * b - 4 * a * c;
 		if (discr < 0)
-			return {};
+			return Hit();
 
 		discr = sqrt(discr);
 		float ts[2] = {
@@ -179,7 +198,7 @@ public:
 				vec3 n = normalize(p * dot(direction, p) / dot(p, p) - direction);
 				if (dot(n, dist) < 0)
 					n = -n;
-				return { ray(t), n, t };
+				return Hit(ray(t), n, t);
 			}
 		}
 		return {};
@@ -196,7 +215,7 @@ public:
 	}
 
 	Ray ray(vec3 point) {
-		return { point, normalize(light_pos() - point) };
+		return Ray(point, normalize(light_pos() - point));
 	}
 
 	const vec3& get_color() { return color; }
@@ -207,7 +226,7 @@ public:
 	}
 private:
 	float angle, height;
-	vec3 position, direction, color;
+	vec3 direction, color;
 
 	vec3 light_pos() const {
 		return position + direction * EPSILON;
@@ -234,7 +253,7 @@ public:
 		vec3 dir = la - p
 			+ r * (2 * (x + 0.5f) / windowWidth - 1)
 			+ u * (2 * (y + 0.5f) / windowHeight - 1); 
-		return { p, normalize(dir) };
+		return Ray(p, normalize(dir));
 	}
 
 	vec3 direction() const {
@@ -410,7 +429,8 @@ void displayFrame(const std::vector<vec4>& data, int width, int height) {
 void initObjects() {
 	camera.set({ -3.5, 0, -5.5 }, { 0, 0, 0 }, { 0, 1, 0 }, M_PI / 3);
 
-	meshes[0] = {
+	meshes[0] = Mesh(
+		vec3(-1, -1, 0 ),
 		{
 			{ 4, 0, 2 },
 			{ 4, 2, 1 },
@@ -429,11 +449,11 @@ void initObjects() {
 			{ 0.0, 0.0, 1.0 },
 			{ 0.0, 0.0, -1.0 },
 		}
-	};
-	meshes[0].position = {-1, -1, 0};
+	);
 	objects[OCTAHEDRON] = meshes;
 
-	meshes[1] = {
+	meshes[1] = Mesh(
+		vec3(1, -1, 0),
 		{
 			{ 8, 16, 0 },
 			{ 8, 9, 4 },
@@ -494,11 +514,11 @@ void initObjects() {
 			{ 0.0, 0.35682210326194763, -0.9341723322868347 },
 			{ 0.0, -0.35682210326194763, -0.9341723322868347 },
 		}
-	};
-	meshes[1].position = {1, -1, 0};
+	);
 	objects[DODECAHEDRON] = meshes + 1;
 
-	meshes[2] = {
+	meshes[2] = Mesh(
+		vec3(),
 		{
 			{ 2, 1, 0 },
 			{ 6, 3, 2 },
@@ -523,7 +543,7 @@ void initObjects() {
 			{ 2.0, 2.0, -2.0 },
 			{ 2.0, 2.0, 2.0 },
 		}
-	};
+	);
 	objects[ROOM] = meshes + 2;
 	
 	detectors[0] = Detector({ 2, 1.54325, -0.42163 }, { -1, 0, 0 }, M_PI / 4, 0.5f, { 1, 0, 0 });
