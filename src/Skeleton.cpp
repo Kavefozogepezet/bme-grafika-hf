@@ -33,10 +33,67 @@
 //=============================================================================================
 #include "framework.h"
 
-#include <stdlib.h>
-#include <time.h>
+GPUProgram playerProg, groundProg, ropeProg;
 
-GPUProgram playerProg, groundProg;
+struct VertexData {
+	vec3 pos, normal;
+};
+
+float _randFloat(float value) {
+	static float delta = 0.01834629f;
+	static float shift = 0.82365518f;
+
+	float r = (value + shift) / delta;
+	r -= int(r);
+	return r;
+}
+
+float randFloat(float value) {
+	float r = value;
+	for (int i = 0; i < 30; i++)
+		r = _randFloat(r);
+	return r;
+}
+
+template<unsigned int n>
+class Noise1PF {
+public:
+	float A0, scale;
+
+	Noise1PF(float amplitude, float scale) : A0(amplitude), scale(scale) {}
+
+	VertexData operator()(float x, float z) const {
+		VertexData vd;
+		y = n1 = n2 = 0;
+
+		for (int f1 = 1; f1 <= n; f1++)
+			for (int f2 = 1; f2 <= n; f2++)
+				component(x, f1, z, f2);
+	
+		vd.pos = vec3(x, y, z);
+		vd.normal = normalize(-cross(vec3(1, n1, 0), vec3(0, n2, 1)));
+		return vd;
+	}
+private:
+	mutable float y, n1, n2;
+
+	void component(float x, unsigned int f1, float z, unsigned int f2) const {
+		x *= scale;
+		z *= scale;
+
+		float
+			p1 = randFloat(f1) * 2 * M_PI,
+			p2 = randFloat(f2) * 2 * M_PI;
+		float phase =  p1 + p2;
+
+		float A = A0 / sqrtf(f1 * f1 + f2 * f2);
+		y += A * cosf(f1 * x + f2 * z + phase);
+
+		float temp = -A * sinf(f1 * x + f2 * z + phase);
+		n1 += f1 * temp;
+		n2 += f2 * temp;
+	}
+};
 
 struct Camera {
 	vec3 position, lookat, up;
@@ -104,8 +161,6 @@ public:
 			init();
 		}
 
-		prog->Use();
-
 		mat4 M =
 			RotationMatrix(angle, axis) *
 			TranslateMatrix(position);
@@ -114,28 +169,80 @@ public:
 			RotationMatrix(-angle, axis);
 		mat4 MVP = M * VP;
 
-		prog->setUniform(M, "M");
-		prog->setUniform(MInv, "MInv");
+		prog->Use();
 		prog->setUniform(MVP, "MVP");
 
 		glBindVertexArray(vao);
-		drawcalls();
+		specdraw(M, MInv);
 	}
 protected:
 	virtual void init() = 0;
-	virtual void drawcalls() const = 0;
+	virtual void specdraw(const mat4& M, const mat4& Minv) const = 0;
 	GPUProgram* prog;
 
 	vec3 axis, position;
 	float angle;
-private:
+
 	unsigned int vao, vbo;
 	bool inited;
 };
 
+class Renderer {
+public:
+	void setCamera(Camera& camera) {
+		currentCam = &camera;
+		VP = camera.view() * camera.projection();
+	}
+
+	vec3 getCameraPos() {
+		return currentCam->position;
+	}
+
+	void setDirectionalLight(vec3 dir, float intensity) {
+		dirLight = normalize(dir) * intensity;
+	}
+
+	vec3 getDirectionalLight() {
+		return dirLight;
+	}
+
+	void drawObject(Object& object) {
+		object.draw(VP);
+	}
+private:
+	Camera* currentCam;
+	vec3 dirLight;
+	mat4 VP;
+} renderer;
+
+class Rope : public Object {
+public:
+	void setFeetPos(vec3 pos) {
+		vec3 line[2] = { vec3(), pos };
+		glBindVertexArray(vao);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(line), line, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, NULL, NULL);
+	}
+protected:
+	void init() override {
+		float v[6] = { 0 };
+
+		setFeetPos(vec3());
+		prog = &ropeProg;
+	}
+
+	void specdraw(const mat4& M, const mat4& MInv) const override {
+		glDrawArrays(GL_LINE_STRIP, 0, 2);
+	}
+} rope;
+
 class Player : public Object {
 public:
-	Player() :
+	Player(Camera* head, Rope* rope) :
+		headCam(head),
+		rope(rope),
 		jumped(false)
 	{}
 
@@ -165,17 +272,14 @@ public:
 		headCam->position = position + head;
 		headCam->lookat = position + 2 * head;
 		headCam->up = up;
+
+		rope->setFeetPos(position - head);
 	}
 
 	void jump() {
-		srand(time(NULL));
-		int vx = rand() % 5000 + 5000;
-		velocity.x = vx / 1000.0f;
+		float sec = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+		velocity.x = randFloat(sec) * 10;
 		jumped = true;
-	}
-
-	void setHead(Camera* camera) {
-		headCam = camera;
 	}
 
 	vec3 getPosition() {
@@ -191,7 +295,9 @@ protected:
 		prog = &playerProg;
 	}
 
-	void drawcalls() const override {
+	void specdraw(const mat4& M, const mat4& MInv) const override {
+		prog->setUniform(MInv, "MInv");
+		prog->setUniform(renderer.getDirectionalLight(), "light");
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 	}
 private:
@@ -200,23 +306,22 @@ private:
 	float angularv;
 
 	Camera* headCam;
+	Rope* rope;
 private:
 	static float x, y, z, mass, invMass, I, invI, airResistance;
 	static float vertices[36 * 6];
 
 	static float l0, D;
-} player;
+} player(&head, &rope);
 
 class Ground : public Object {
 public:
-	Ground() {
+	Ground() :
+		noise(height / 2, 0.1f)
+	{
 		position = vec3(0, -10, 0);
 	}
 protected:
-	struct VertexData {
-		vec3 pos, normal;
-	};
-
 	void init() override {
 		std::vector<VertexData> data;
 
@@ -228,34 +333,36 @@ protected:
 			}
 		}
 
-		glBufferData(GL_ARRAY_BUFFER, sizeof(VertexData) * data.size(), data.data(), GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(VertexData) * data.size(), data.data(), GL_DYNAMIC_DRAW);
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 6, NULL);
 		glEnableVertexAttribArray(1);
 		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 6, (const void*)(sizeof(float) * 3));
-		prog = &playerProg;
+		prog = &groundProg;
 	}
 
-	void drawcalls() const override {
+	void specdraw(const mat4& M, const mat4& MInv) const override {
+		prog->setUniform(M, "M");
+		prog->setUniform(MInv, "MInv");
+		prog->setUniform(renderer.getDirectionalLight(), "light");
+		prog->setUniform(position.y - height / 2, "min");
+		prog->setUniform(height, "height");
+		prog->setUniform(renderer.getCameraPos(), "camPos");
+
 		for(int i = 0; i < NStrip; i ++)
 			glDrawArrays(GL_TRIANGLE_STRIP, i * MStrip, MStrip);
 	}
 private:
-	static int N, M, NStrip, MStrip;
+	Noise1PF<4> noise;
 
 	VertexData genVertex(float u, float v) {
 		u = (u - 0.5f) * M_PI * 20;
 		v = (v - 0.5f) * M_PI * 20;
-
-		VertexData d = VertexData();
-		d.pos = vec3(u, (sinf(u) + sinf(v)) * 0.5f, v);
-
-		vec3 du = vec3(1, cosf(u) * 0.5f, 0);
-		vec3 dv = vec3(0, cosf(v) * 0.5f, 1);
-		d.normal = normalize(cross(du, dv));
-
-		return d;
+		return noise(u, v);
 	}
+private:
+	static int N, M, NStrip, MStrip;
+	static float height;
 } ground;
 
 void initShaders();
@@ -264,24 +371,25 @@ void onInitialization() {
 	glViewport(0, 0, windowWidth, windowHeight);
 	initShaders();
 	glEnable(GL_DEPTH_TEST);
-
-	player.setHead(&head);
+	renderer.setDirectionalLight(vec3(-1, -3, -2), 1);
 }
 
 void onDisplay() {
-	glClearColor(0, 0, 0, 0);     // background color
+	glClearColor(0.5, 0.8f, 1.0f, 1.0f);     // background color
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // clear frame buffer
 
 	int w = windowWidth / 2;
 
 	glViewport(0, 0, w, windowHeight);
-	mat4 VP = head.view() * head.projection();
-	ground.draw(VP);
+	renderer.setCamera(head);
+	renderer.drawObject(ground);
+	renderer.drawObject(rope);
 
 	glViewport(w, 0, windowWidth - w, windowHeight);
-	VP = drone.view() * drone.projection();
-	player.draw(VP);
-	ground.draw(VP);
+	renderer.setCamera(drone);
+	renderer.drawObject(ground);
+	renderer.drawObject(rope);
+	renderer.drawObject(player);
 
 	glutSwapBuffers(); // exchange buffers for double buffering
 }
@@ -311,37 +419,36 @@ void animateDrone(float dt) {
 }
 
 void onIdle() {
-	static long lasttime = 0;
-	long time = glutGet(GLUT_ELAPSED_TIME);
+	static float lasttime = 0;
+	float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
-	float delta = (time - lasttime) / 1000.0f;
-	lasttime = time;
-
-	animateDrone(delta);
-	player.update(delta);
+	for (float t = lasttime; t < time; t += 1 / 60.0f) {
+		float dt = min(1 / 60.0f, time - t);
+		animateDrone(dt);
+		player.update(dt);
+	}
 
 	glutPostRedisplay();
+	lasttime = time;
 }
 
 const char* const pVert = R"(
 	#version 330				
 	precision highp float;		
 
-	uniform mat4 M, MInv, MVP;			
+	uniform mat4 MInv, MVP;
+	uniform vec3 light;
+
 	layout(location = 0) in vec3 vp;
 	layout(location = 1) in vec3 vn;
 	
 	out vec3 color;
 
 	void main() {
-		vec4 light = normalize(vec4(-1, 0, -2, 0));
+		vec3 n = normalize((MInv * vec4(vn, 0)).xyz);
+		float i = max(dot(-light, n), 0);
 
-		vec4 pos = vec4(vp, 1) * M;
-		vec4 n = MInv * vec4(vn, 0);
-
-		float i = max(dot(light, n), 0);
-		color = vec3(i, i, i);
-
+		color = vec3(1, 0.5, 0.5) * i;
 		gl_Position = vec4(vp, 1) * MVP;
 	}
 )";
@@ -351,15 +458,89 @@ const char* const pFrag = R"(
 	precision highp float;
 	
 	in vec3 color;
+	out vec4 outColor;
+
+	void main() {
+		outColor = vec4(color, 1);
+	}
+)";
+
+const char* const rVert = R"(
+	#version 330				
+	precision highp float;		
+
+	uniform mat4 MVP;		
+	layout(location = 0) in vec3 vp;
+
+	void main() {
+		gl_Position = vec4(vp, 1) * MVP;
+	}
+)";
+
+const char* const rFrag = R"(
+	#version 330			
+	precision highp float;
+	
 	out vec4 outColor;	
 
 	void main() {
-		outColor = vec4(color, 1) * 0.9 + vec4(0.1, 0.1, 0.1, 0);
+		outColor = vec4(1, 0, 0, 1);
+	}
+)";
+
+const char* const gVert = R"(
+	#version 330				
+	precision highp float;		
+
+	uniform mat4 M, MInv, MVP;
+	uniform vec3 camPos;
+	uniform float min, height;
+		
+	layout(location = 0) in vec3 vp;
+	layout(location = 1) in vec3 vn;
+	
+	out vec3 normal, view;
+	out float kd;
+
+	void main() {
+		gl_Position = vec4(vp, 1) * MVP;
+
+		vec4 worldPos = vec4(vp, 1) * M;
+		normal = (MInv * vec4(vn, 0)).xyz;
+		view = camPos - worldPos.xyz / worldPos.w;
+		kd = 1 - (worldPos.y - min) / height * 0.5;
+	}
+)";
+
+const char* const gFrag = R"(
+	#version 330			
+	precision highp float;
+	
+	in vec3 normal, view;
+	in float kd;
+
+	out vec4 outColor;
+
+	uniform vec3 light;
+
+	void main() {
+		vec3 n = normalize(normal);
+		vec3 v = normalize(view);
+		vec3 l = normalize(-light);
+		vec3 h = normalize(l + v);
+
+		float cost = max(dot(n, l), 0);
+		float cosd = max(dot(n, h), 0);
+
+		vec3 c = (vec3(0.1, 1, 0.1) * kd * cost + vec3(0.5, 0.5, 0.5) * pow(cosd, 20)) * length(light);
+		outColor = vec4(c, 1);
 	}
 )";
 
 void initShaders() {
 	playerProg.create(pVert, pFrag, "outColor");
+	ropeProg.create(rVert, rFrag, "outColor");
+	groundProg.create(gVert, gFrag, "outColor");
 }
 
 float
@@ -462,7 +643,9 @@ float
 		 0, -1, 0
 	};
 
-int Ground::N = 100,
-	Ground::M = 100,
+int Ground::N = 50,
+	Ground::M = 50,
 	Ground::NStrip = N,
 	Ground::MStrip = (M + 1) * 2;
+
+float Ground::height = 3;
